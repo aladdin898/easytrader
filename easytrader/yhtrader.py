@@ -1,6 +1,7 @@
 # coding: utf-8
 from __future__ import division
 
+import math
 import os
 import random
 import re
@@ -45,7 +46,7 @@ class YHTrader(WebTrader):
         }
         if self.s is not None:
             self.s.get(self.config['logout_api'])
-        self.s = requests.session()
+        self.s = requests.Session()
         self.s.headers.update(headers)
         data = self.s.get(self.config['login_page'])
 
@@ -106,14 +107,18 @@ class YHTrader(WebTrader):
             return True, None
         return False, login_response.text
 
-    @property
-    def token(self):
-        return self.cookie['JSESSIONID']
+    def _prepare_account(self, user, password, **kwargs):
+        """
 
-    @token.setter
-    def token(self, token):
-        self.cookie = dict(JSESSIONID=token)
-        self.keepalive()
+        :param user:
+        :param password:
+        :param kwargs:
+        :return:
+        """
+        self.account_config = {
+            'inputaccount': user,
+            'trdpwd': password
+        }
 
     def check_available_cancels(self, parsed=True):
         """
@@ -407,7 +412,7 @@ class YHTrader(WebTrader):
         need_info = self.__get_trade_need_info(stock_code)
         trade_params = dict(
             other,
-            stockCode=stock_code,
+            stockCode=stock_code[-6:],
             price=price,
             market=need_info['exchange_type'],
             secuid=need_info['stock_account']
