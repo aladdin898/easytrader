@@ -9,6 +9,7 @@ from datetime import datetime
 from threading import Thread
 
 import requests
+# noinspection PyUnresolvedReferences
 from six.moves.queue import Queue
 
 from .log import log
@@ -20,6 +21,7 @@ class BaseFollower(object):
     TRANSACTION_API = ''
     CMD_CACHE_FILE = 'cmd_cache.pk'
     WEB_REFERER = ''
+    WEB_ORIGIN = ''
 
     def __init__(self):
         self.trade_queue = Queue()
@@ -36,7 +38,7 @@ class BaseFollower(object):
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.100 Safari/537.36',
             'Referer': self.WEB_REFERER,
             'X-Requested-With': 'XMLHttpRequest',
-            'Origin': 'https://www.joinquant.com',
+            'Origin': self.WEB_ORIGIN,
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         }
         self.s.headers.update(headers)
@@ -67,7 +69,7 @@ class BaseFollower(object):
 
     def follow(self, users, strategies, track_interval=1,
                trade_cmd_expire_seconds=120, cmd_cache=True, **kwargs):
-        """跟踪joinquant对应的模拟交易，支持多用户多策略
+        """跟踪平台对应的模拟交易，支持多用户多策略
         :param users: 支持easytrader的用户对象，支持使用 [] 指定多个用户
         :param strategies: 雪球组合名, 类似 ZH123450
         :param total_assets: 雪球组合对应的总资产， 格式 [ 组合1对应资金, 组合2对应资金 ]
@@ -79,37 +81,17 @@ class BaseFollower(object):
         :param trade_cmd_expire_seconds: 交易指令过期时间, 单位为秒
         :param cmd_cache: 是否读取存储历史执行过的指令，防止重启时重复执行已经交易过的指令
         """
-        users = self.warp_list(users)
-        strategies = self.warp_list(strategies)
-        total_assets = self.warp_list(kwargs.get('total_assets'))
-        initial_assets = self.warp_list(kwargs.get('initial_assets'))
-
-        if cmd_cache:
-            self.load_expired_cmd_cache()
-
-        self.start_trader_thread(users, trade_cmd_expire_seconds)
-
-        for strategy_url, strategy_total_assets, strategy_initial_assets in zip(strategies, total_assets,
-                                                                                initial_assets):
-            assets = self.calculate_assets(strategy_url, strategy_total_assets, strategy_initial_assets)
-            try:
-                strategy_id = self.extract_strategy_id(strategy_url)
-                strategy_name = self.extract_strategy_name(strategy_url)
-            except:
-                log.error('抽取交易id和策略名失败, 无效的模拟交易url: {}'.format(strategy_url))
-                raise
-            strategy_worker = Thread(target=self.track_strategy_worker, args=[strategy_id, strategy_name],
-                                     kwargs={'interval': track_interval, 'assets': assets})
-            strategy_worker.start()
-            log.info('开始跟踪策略: {}'.format(strategy_name))
+        raise NotImplementedError
 
     def load_expired_cmd_cache(self):
         if os.path.exists(self.CMD_CACHE_FILE):
             with open(self.CMD_CACHE_FILE, 'rb') as f:
                 self.expired_cmds = pickle.load(f)
 
-    def start_trader_thread(self, users, trade_cmd_expire_seconds):
-        trader = Thread(target=self.trade_worker, args=[users], kwargs={'expire_seconds': trade_cmd_expire_seconds})
+    def start_trader_thread(self, users, trade_cmd_expire_seconds, entrust_prop='limit', send_interval=0):
+        trader = Thread(target=self.trade_worker, args=[users], kwargs={'expire_seconds': trade_cmd_expire_seconds,
+                                                                        'entrust_prop': entrust_prop,
+                                                                        'send_interval': send_interval})
         trader.setDaemon(True)
         trader.start()
 
@@ -140,9 +122,13 @@ class BaseFollower(object):
         """跟踪下单worker
         :param strategy: 策略id
         :param name: 策略名字
-        :param interval: 轮训策略的时间间隔，单位为秒"""
+        :param interval: 轮询策略的时间间隔，单位为秒"""
         while True:
-            transactions = self.query_strategy_transaction(strategy, **kwargs)
+            try:
+                transactions = self.query_strategy_transaction(strategy, **kwargs)
+            except Exception as e:
+                log.warning('无法获取策略 {} 调仓信息, 错误: {}, 跳过此次调仓查询'.format(name, e))
+                continue
             for t in transactions:
                 trade_cmd = {
                     'strategy': strategy,
@@ -192,7 +178,10 @@ class BaseFollower(object):
         except ValueError:
             return False
 
-    def trade_worker(self, users, expire_seconds=120):
+    def trade_worker(self, users, expire_seconds=120, entrust_prop='limit', send_interval=0):
+        """
+        :param send_interval: 交易发送间隔， 默认为0s。调大可防止卖出买入时买出单没有及时成交导致的买入金额不足
+        """
         while True:
             trade_cmd = self.trade_queue.get()
             for user in users:
@@ -229,7 +218,8 @@ class BaseFollower(object):
                 args = {
                     'stock_code': trade_cmd['stock_code'],
                     'price': trade_cmd['price'],
-                    'amount': trade_cmd['amount']
+                    'amount': trade_cmd['amount'],
+                    'entrust_prop': entrust_prop
                 }
                 try:
                     response = getattr(user, trade_cmd['action'])(**args)
@@ -247,6 +237,7 @@ class BaseFollower(object):
                         trade_cmd['strategy_name'], trade_cmd['stock_code'], trade_cmd['action'],
                         trade_cmd['amount'],
                         trade_cmd['price'], trade_cmd['datetime'], response))
+                time.sleep(send_interval)
 
     def query_strategy_transaction(self, strategy, **kwargs):
         params = self.create_query_transaction_params(strategy)

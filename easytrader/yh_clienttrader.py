@@ -1,3 +1,4 @@
+# coding:utf8
 from __future__ import division
 
 import os
@@ -101,7 +102,7 @@ class YHClientTrader():
         win32gui.SendMessage(input_hwnd, win32con.WM_SETTEXT, None, password)
 
     def _has_login_window(self):
-        for title in [' - 北京电信', ' - 北京电信 - 北京电信']:
+        for title in [' - 北京电信', ' - 北京电信 - 北京电信', ' - 北京联通1']:
             self.login_hwnd = win32gui.FindWindow(None, title)
             if self.login_hwnd != 0:
                 return True
@@ -186,7 +187,21 @@ class YHClientTrader():
         chexin_sub_hwnd = win32gui.GetDlgItem(chexin_hwnd, 200)
         self.entrust_list_hwnd = win32gui.GetDlgItem(chexin_sub_hwnd, 1047)  # 委托列表
 
-    def buy(self, stock_code, price, amount):
+        # 资金股票
+        win32api.PostMessage(tree_view_hwnd, win32con.WM_KEYDOWN, win32con.VK_F4, 0)
+        time.sleep(0.5)
+        self.capital_window_hwnd = win32gui.GetDlgItem(operate_frame_hwnd, 0xE901)  # 资金股票窗口框架
+
+    def balance(self):
+        return self.get_balance()
+
+    def get_balance(self):
+        self._set_foreground_window(self.capital_window_hwnd)
+        time.sleep(0.3)
+        data = self._read_clipboard()
+        return self.project_copy_data(data)[0]
+
+    def buy(self, stock_code, price, amount, **kwargs):
         """
         买入股票
         :param stock_code: 股票代码
@@ -210,7 +225,7 @@ class YHClientTrader():
             return False
         return True
 
-    def sell(self, stock_code, price, amount):
+    def sell(self, stock_code, price, amount, **kwargs):
         """
         买出股票
         :param stock_code: 股票代码
@@ -275,7 +290,7 @@ class YHClientTrader():
     @staticmethod
     def project_copy_data(copy_data):
         reader = StringIO(copy_data)
-        df = pd.read_csv(reader, delim_whitespace=True)
+        df = pd.read_csv(reader, sep = '\t')
         return df.to_dict('records')
 
     def _read_clipboard(self):
@@ -296,11 +311,13 @@ class YHClientTrader():
     @staticmethod
     def _project_position_str(raw):
         reader = StringIO(raw)
-        df = pd.read_csv(reader, delim_whitespace=True)
+        df = pd.read_csv(reader, sep = '\t')
         return df
 
     @staticmethod
     def _set_foreground_window(hwnd):
+        import pythoncom
+        pythoncom.CoInitialize()
         shell = win32com.client.Dispatch('WScript.Shell')
         shell.SendKeys('%')
         win32gui.SetForegroundWindow(hwnd)

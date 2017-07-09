@@ -16,15 +16,9 @@ from requests.packages.urllib3.poolmanager import PoolManager
 from six.moves import input
 
 from .log import log
-from .thirdlibrary.yjb_captcha import YJBCaptcha
 
 if six.PY2:
     from io import open
-
-
-class EntrustProp(object):
-    Limit = 'limit'
-    Market = 'market'
 
 
 class Ssl3HttpAdapter(HTTPAdapter):
@@ -48,7 +42,7 @@ def get_stock_type(stock_code):
     ['5', '6', '9'] 开头的为 sh， 其余为 sz
     :param stock_code:股票ID, 若以 'sz', 'sh' 开头直接返回对应类型，否则使用内置规则判断
     :return 'sh' or 'sz'"""
-    assert type(stock_code) is str, 'stock code need str type'
+    stock_code = str(stock_code)
     if stock_code.startswith(('sh', 'sz')):
         return stock_code[:2]
     if stock_code.startswith(('50', '51', '60', '73', '90', '110', '113', '132', '204', '78')):
@@ -88,6 +82,8 @@ def recognize_verify_code(image_path, broker='ht'):
         return detect_gf_result(image_path)
     elif broker == 'yh':
         return detect_yh_result(image_path)
+    elif broker == 'xczq':
+        return default_verify_code_detect(image_path)
     elif broker == 'yh_client':
         return detect_yh_client_result(image_path)
     # 调用 tesseract 识别
@@ -112,23 +108,6 @@ def input_verify_code_manual(image_path):
     image = Image.open(image_path)
     image.show()
     code = input('image path: {}, input verify code answer:'.format(image_path))
-    return code
-
-
-def detect_ht_result(image_path):
-    code = detect_verify_code_by_java(image_path, 'ht')
-    if not code:
-        return default_verify_code_detect(image_path)
-    return code
-
-
-def detect_yjb_result(image_path):
-    captcha = YJBCaptcha(imagePath=image_path)
-    code = captcha.string()
-    if not code:
-        code = detect_verify_code_by_java(image_path, 'yjb')
-    elif not code:
-        return default_verify_code_detect(image_path)
     return code
 
 
